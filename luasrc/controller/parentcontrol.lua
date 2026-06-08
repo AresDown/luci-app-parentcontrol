@@ -16,16 +16,14 @@ function status()
     local e = {}
     local lock_running = nixio.fs.access("/tmp/lock/parentcontrol.lock")
 
-    local chain_running =
-        (luci.sys.call("/usr/sbin/nft list chain inet fw4 parentcontrol_time >/dev/null") == 0) or
-        (luci.sys.call("/usr/sbin/nft list chain inet fw4 parentcontrol_protocol >/dev/null") == 0) or
-        (luci.sys.call("/usr/sbin/nft list chain inet fw4 parentcontrol_weburl >/dev/null") == 0)
+    local time_chain_running = (luci.sys.call("/usr/sbin/nft list chain inet fw4 parentcontrol_time >/dev/null 2>&1") == 0)
+    local speed_chain_running = (luci.sys.call("/usr/sbin/nft list chain inet fw4 parentcontrol_speed >/dev/null 2>&1") == 0)
 
     local cron_running = (luci.sys.call("grep -q '# parentcontrol' /etc/crontabs/root >/dev/null 2>&1") == 0)
 
     if not lock_running then
         e.status = "inactive"
-    elseif chain_running or cron_running then
+    elseif (time_chain_running or speed_chain_running) and cron_running then
         e.status = "running"
     else
         e.status = "started_no_rules"

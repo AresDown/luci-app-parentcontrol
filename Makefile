@@ -8,15 +8,17 @@ include $(TOPDIR)/rules.mk
 
 NAME:=parentcontrol
 PKG_NAME:=luci-app-$(NAME)
-PKG_VERSION:=1.7.4
-PKG_RELEASE:=20260302
+PKG_VERSION:=1.7.5
+PKG_RELEASE:=20260608
 PKG_LICENSE:=Apache-2.0
 
-LUCI_TITLE:=LuCI support for Parent Control
-
-LUCI_DEPENDS:=+nftables
-
-LUCI_PKGARCH:=all
+define Package/$(PKG_NAME)
+  SECTION:=luci
+  CATEGORY:=LuCI
+  SUBMENU:=3. Applications
+  TITLE:=LuCI support for Parent Control
+  DEPENDS:=+nftables
+endef
 
 define Package/$(PKG_NAME)/conffiles
 /etc/config/parentcontrol

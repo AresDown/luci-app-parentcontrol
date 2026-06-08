@@ -166,6 +166,37 @@ del_rule() {
     done
 }
 
+# Return success when the current nft state still matches what reload() expects.
+# If fw4 recreated the ruleset and our chains or jump rules disappeared,
+# reload() must rebuild even when the computed state fingerprint is unchanged.
+rules_ready() {
+    local state="$1" control_mode time_rules speed_rules
+
+    $nft list chain inet fw4 parentcontrol_time >/dev/null 2>&1 || return 1
+    $nft list chain inet fw4 parentcontrol_speed >/dev/null 2>&1 || return 1
+
+    [ -z "$state" ] && return 0
+
+    time_rules=$($nft list chain inet fw4 parentcontrol_time 2>/dev/null | grep -c "reject")
+    speed_rules=$($nft list chain inet fw4 parentcontrol_speed 2>/dev/null | grep -c "drop")
+    [ "$time_rules" -gt 0 ] || [ "$speed_rules" -gt 0 ] || return 1
+
+    $nft -a list chain inet fw4 forward 2>/dev/null | grep -q "jump parentcontrol_time" || return 1
+    $nft -a list chain inet fw4 forward 2>/dev/null | grep -q "jump parentcontrol_speed" || return 1
+
+    control_mode=$(uci -q get $CONFIG.@basic[0].control_mode)
+    [ -z "$control_mode" ] && control_mode=0
+    if [ "$control_mode" = "1" ]; then
+        $nft -a list chain inet fw4 input 2>/dev/null | grep -q "jump parentcontrol_time" || return 1
+    fi
+
+    return 0
+}
+
+cron_has_entry() {
+    grep -q "# parentcontrol" /etc/crontabs/root 2>/dev/null
+}
+
 # Compute state fingerprint — includes resolved IPs so DHCP changes trigger refresh
 compute_rules_state() {
     local state="" idx
@@ -367,12 +398,15 @@ reload() {
     mkdir -p "$LOG_DIR"
     update_now
 
-    local new_state old_state
+    local new_state old_state runtime_missing=0 cron_missing=0
     new_state=$(compute_rules_state)
     old_state=$(cat "$STATE_FILE" 2>/dev/null)
 
-    # Fast path: no change
-    if [ "$new_state" = "$old_state" ]; then
+    rules_ready "$new_state" || runtime_missing=1
+    cron_has_entry || cron_missing=1
+
+    # Fast path: no change and nft rules are still present.
+    if [ "$new_state" = "$old_state" ] && [ "$runtime_missing" = "0" ] && [ "$cron_missing" = "0" ]; then
         return 0
     fi
 
@@ -385,9 +419,15 @@ reload() {
     load_speed_rules
     flush_conntrack
 
+    [ "$cron_missing" = "1" ] && rebuild_cron
+
     echo "$new_state" > "$STATE_FILE"
     touch "$LOCK"
-    elog "reload: state changed (now=$NOW_H:$NOW_M w=$NOW_WEEK) [$new_state]"
+    if [ "$new_state" = "$old_state" ]; then
+        elog "reload: runtime repaired (now=$NOW_H:$NOW_M w=$NOW_WEEK) [$new_state]"
+    else
+        elog "reload: state changed (now=$NOW_H:$NOW_M w=$NOW_WEEK) [$new_state]"
+    fi
 }
 
 status() {
@@ -401,19 +441,26 @@ status() {
         echo "parentcontrol is inactive (not started)"
         return 1
     fi
-    local time_rules=0 speed_rules=0
+    local time_rules=0 speed_rules=0 time_chain=0 speed_chain=0 cron_running=0
     if $nft list chain inet fw4 parentcontrol_time >/dev/null 2>&1; then
+        time_chain=1
         time_rules=$($nft list chain inet fw4 parentcontrol_time 2>/dev/null | grep -c "reject")
     fi
     if $nft list chain inet fw4 parentcontrol_speed >/dev/null 2>&1; then
+        speed_chain=1
         speed_rules=$($nft list chain inet fw4 parentcontrol_speed 2>/dev/null | grep -c "drop")
     fi
+    cron_has_entry && cron_running=1
     if [ "$time_rules" -gt 0 ] || [ "$speed_rules" -gt 0 ]; then
         echo "parentcontrol is running (time=$time_rules speed=$speed_rules)"
-    elif grep -q "# parentcontrol" /etc/crontabs/root 2>/dev/null; then
-        echo "parentcontrol is running (cron active, waiting for time window)"
+    elif [ "$time_chain" -eq 1 ] || [ "$speed_chain" -eq 1 ]; then
+        if [ "$cron_running" -eq 1 ]; then
+            echo "parentcontrol is running (cron active, waiting for time window)"
+        else
+            echo "parentcontrol is started (cron missing)"
+        fi
     else
-        echo "parentcontrol is started (no active rules)"
+        echo "parentcontrol is started (runtime missing)"
     fi
     return 0
 }
