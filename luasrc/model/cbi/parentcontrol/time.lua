@@ -18,10 +18,10 @@ e.value = translate("Collecting data...")
 e = t:option(Flag, "enabled", translate("开启"))
 e.rmempty = false
 
-e = t:option(ListValue, "control_mode",translate("管控强度"), translate("普通管控：管控国内网站，出国插件的国外网站无法管控。强力管控：国内国外都可管控，注意：被管控的机器将无法连接上软路由后台！"))
+e = t:option(ListValue, "control_mode",translate("路由器访问控制"), translate("普通管控：限制客户端访问互联网，但允许访问路由器后台。强力管控：同时限制客户端访问路由器后台、DNS 等本机服务。注意：强力管控下，被管控的客户端可能无法访问软路由后台。"))
 e.rmempty = false
-e:value("0", "普通管控")
-e:value("1", "强力管控")
+e:value("0", "允许访问路由器后台")
+e:value("1", "禁止访问路由器后台")
 e.default = "0"
 
 t = a:section(TypedSection, "time", translate("时间限制列表"))

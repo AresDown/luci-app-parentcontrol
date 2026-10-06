@@ -55,6 +55,7 @@ time_match() {
     in_week "$week" "$now_week" || return 1
     [ -z "$start" ] && [ -z "$end" ] && return 0
     [ -z "$start" ] || [ -z "$end" ] && return 0
+    [ "$start" = "$end" ] && return 0
     local sh sm eh em s e
     sh=${start%:*}; sm=${start#*:}; eh=${end%:*}; em=${end#*:}
     [ -z "$sh" ] || [ -z "$sm" ] || [ -z "$eh" ] || [ -z "$em" ] && return 1
