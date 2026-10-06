@@ -138,30 +138,26 @@ remove_jump_rules() {
 }
 
 setup_chains() {
-    local control_mode
-    control_mode=$(uci -q get $CONFIG.@basic[0].control_mode)
-    [ -z "$control_mode" ] && control_mode=0
     $nft add table inet fw4 2>/dev/null || true
     $nft add chain inet fw4 parentcontrol_time 2>/dev/null || true
     $nft add chain inet fw4 parentcontrol_speed 2>/dev/null || true
+    $nft add chain inet fw4 parentcontrol_input 2>/dev/null || true
     local ch
     for ch in parentcontrol_time parentcontrol_speed; do
         remove_jump_rules "$ch" forward
         $nft insert rule inet fw4 forward jump "$ch" 2>/dev/null
     done
-    remove_jump_rules parentcontrol_time input
-    if [ "$control_mode" = "1" ]; then
-        $nft insert rule inet fw4 input jump parentcontrol_time 2>/dev/null
-    fi
+    remove_jump_rules parentcontrol_input input
+    $nft insert rule inet fw4 input jump parentcontrol_input 2>/dev/null
 }
 
 del_rule() {
     local ch
-    for ch in parentcontrol_time parentcontrol_speed; do
+    for ch in parentcontrol_time parentcontrol_speed parentcontrol_input; do
         remove_jump_rules "$ch" forward
         remove_jump_rules "$ch" input
     done
-    for ch in parentcontrol_time parentcontrol_speed; do
+    for ch in parentcontrol_time parentcontrol_speed parentcontrol_input; do
         $nft flush chain inet fw4 "$ch" 2>/dev/null
         $nft delete chain inet fw4 "$ch" 2>/dev/null
     done
@@ -171,10 +167,11 @@ del_rule() {
 # If fw4 recreated the ruleset and our chains or jump rules disappeared,
 # reload() must rebuild even when the computed state fingerprint is unchanged.
 rules_ready() {
-    local state="$1" control_mode time_rules speed_rules
+    local state="$1" time_rules speed_rules
 
     $nft list chain inet fw4 parentcontrol_time >/dev/null 2>&1 || return 1
     $nft list chain inet fw4 parentcontrol_speed >/dev/null 2>&1 || return 1
+    $nft list chain inet fw4 parentcontrol_input >/dev/null 2>&1 || return 1
 
     [ -z "$state" ] && return 0
 
@@ -184,14 +181,16 @@ rules_ready() {
 
     $nft -a list chain inet fw4 forward 2>/dev/null | grep -q "jump parentcontrol_time" || return 1
     $nft -a list chain inet fw4 forward 2>/dev/null | grep -q "jump parentcontrol_speed" || return 1
-
-    control_mode=$(uci -q get $CONFIG.@basic[0].control_mode)
-    [ -z "$control_mode" ] && control_mode=0
-    if [ "$control_mode" = "1" ]; then
-        $nft -a list chain inet fw4 input 2>/dev/null | grep -q "jump parentcontrol_time" || return 1
-    fi
+    $nft -a list chain inet fw4 input 2>/dev/null | grep -q "jump parentcontrol_input" || return 1
 
     return 0
+}
+
+rule_control_mode() {
+    local section="$1" idx="$2" mode
+    mode=$(uci -q get "$CONFIG.@$section[$idx].control_mode")
+    [ "$mode" = "1" ] || mode=0
+    echo "$mode"
 }
 
 cron_has_entry() {
@@ -217,7 +216,9 @@ compute_rules_state() {
             [ -n "$tstart" ] && [ -n "$tstop" ] && {
                 time_match "$tstart" "$tstop" "$week" "$NOW_MIN" "$NOW_WEEK" || active=0
             }
-            [ "$active" = "1" ] && state="${state}T${idx}:${mac:-ALL};"
+            if [ "$active" = "1" ]; then
+                state="${state}T${idx}:${mac:-ALL}:M$(rule_control_mode time "$idx");"
+            fi
         fi
         idx=$((idx + 1))
     done
@@ -240,12 +241,63 @@ compute_rules_state() {
             if [ "$active" = "1" ]; then
                 local ips=""
                 [ -n "$mac" ] && ips=$(resolve_mac_ips "$mac" "$LAN_IF" | tr '\n' ',')
-                state="${state}S${idx}:${mac:-ALL}:${rate:-1mbit}:${ips};"
+                state="${state}S${idx}:${mac:-ALL}:${rate:-1mbit}:${ips}:M$(rule_control_mode speed "$idx");"
             fi
         fi
         idx=$((idx + 1))
     done
     echo "$state"
+}
+
+# Load rules that block active clients from reaching router-local services.
+load_input_rules() {
+    get_lan_if
+    local idx enabled tstart tstop week mac active mode INF_EXPR MAC_EXPR
+    INF_EXPR="meta iifname \"$LAN_IF\""
+
+    idx=0
+    while uci -q get "$CONFIG.@time[$idx]" >/dev/null 2>&1; do
+        enabled=$(uci -q get "$CONFIG.@time[$idx].enable")
+        mode=$(rule_control_mode time "$idx")
+        if [ "$enabled" = "1" ] && [ "$mode" = "1" ]; then
+            tstart=$(uci -q get "$CONFIG.@time[$idx].timestart")
+            tstop=$(uci -q get "$CONFIG.@time[$idx].timeend")
+            week=$(uci -q get "$CONFIG.@time[$idx].week")
+            active=1
+            [ -n "$tstart" ] && [ -n "$tstop" ] && {
+                time_match "$tstart" "$tstop" "$week" "$NOW_MIN" "$NOW_WEEK" || active=0
+            }
+            if [ "$active" = "1" ]; then
+                mac=$(uci -q get "$CONFIG.@time[$idx].mac")
+                MAC_EXPR=""
+                [ -n "$mac" ] && MAC_EXPR="ether saddr $mac"
+                $nft add rule inet fw4 parentcontrol_input $INF_EXPR $MAC_EXPR counter reject 2>/dev/null
+            fi
+        fi
+        idx=$((idx + 1))
+    done
+
+    idx=0
+    while uci -q get "$CONFIG.@speed[$idx]" >/dev/null 2>&1; do
+        enabled=$(uci -q get "$CONFIG.@speed[$idx].enable")
+        mode=$(rule_control_mode speed "$idx")
+        if [ "$enabled" = "1" ] && [ "$mode" = "1" ]; then
+            tstart=$(uci -q get "$CONFIG.@speed[$idx].timestart")
+            tstop=$(uci -q get "$CONFIG.@speed[$idx].timeend")
+            week=$(uci -q get "$CONFIG.@speed[$idx].week")
+            active=1
+            [ -n "$tstart" ] && [ -n "$tstop" ] && {
+                time_match "$tstart" "$tstop" "$week" "$NOW_MIN" "$NOW_WEEK" || active=0
+            }
+            if [ "$active" = "1" ]; then
+                mac=$(uci -q get "$CONFIG.@speed[$idx].mac")
+                MAC_EXPR=""
+                [ -n "$mac" ] && MAC_EXPR="ether saddr $mac"
+                $nft add rule inet fw4 parentcontrol_input $INF_EXPR $MAC_EXPR counter reject 2>/dev/null
+            fi
+        fi
+        idx=$((idx + 1))
+    done
 }
 
 # Load time-blocking rules into nftables
@@ -370,6 +422,7 @@ start() {
 
     load_time_rules
     load_speed_rules
+    load_input_rules
     flush_conntrack
 
     compute_rules_state > "$STATE_FILE"
@@ -415,9 +468,11 @@ reload() {
     setup_chains
     $nft flush chain inet fw4 parentcontrol_time 2>/dev/null
     $nft flush chain inet fw4 parentcontrol_speed 2>/dev/null
+    $nft flush chain inet fw4 parentcontrol_input 2>/dev/null
 
     load_time_rules
     load_speed_rules
+    load_input_rules
     flush_conntrack
 
     [ "$cron_missing" = "1" ] && rebuild_cron

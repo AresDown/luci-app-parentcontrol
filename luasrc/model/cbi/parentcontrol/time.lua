@@ -18,12 +18,6 @@ e.value = translate("Collecting data...")
 e = t:option(Flag, "enabled", translate("开启"))
 e.rmempty = false
 
-e = t:option(ListValue, "control_mode",translate("路由器访问控制"), translate("普通管控：限制客户端访问互联网，但允许访问路由器后台。强力管控：同时限制客户端访问路由器后台、DNS 等本机服务。注意：强力管控下，被管控的客户端可能无法访问软路由后台。"))
-e.rmempty = false
-e:value("0", "允许访问路由器后台")
-e:value("1", "禁止访问路由器后台")
-e.default = "0"
-
 t = a:section(TypedSection, "time", translate("时间限制列表"))
 t.template = "cbi/tblsection"
 t.anonymous = true
@@ -34,6 +28,12 @@ e = t:option(Value, 'remarks', translate('Remarks'))
 e = t:option(Flag, "enable", translate("开启"))
 e.rmempty = false
 e.default = '1'
+
+e = t:option(ListValue, "control_mode", translate("路由器访问控制"), translate("普通管控：限制互联网，允许访问路由器后台。<br/>强力管控：限制互联网及路由器本机服务。"))
+e.rmempty = false
+e:value("0", "允许访问路由器后台")
+e:value("1", "禁止访问路由器后台")
+e.default = "0"
 
 e = t:option(Value, "mac", translate("MAC地址<font color=\"green\">(留空为全部客户端)</font>"))
 
@@ -86,6 +86,12 @@ e = t:option(Value, 'remarks', translate('Remarks'))
 e = t:option(Flag, "enable", translate("开启"))
 e.rmempty = false
 e.default = '1'
+
+e = t:option(ListValue, "control_mode", translate("路由器访问控制"), translate("普通管控：限制互联网，允许访问路由器后台。<br/>强力管控：限制互联网及路由器本机服务。"))
+e.rmempty = false
+e:value("0", "允许访问路由器后台")
+e:value("1", "禁止访问路由器后台")
+e.default = "0"
 
 e = t:option(Value, "mac", translate("MAC地址<font color=\"green\">(留空为全部客户端)</font>"))
 e.rmempty = true
