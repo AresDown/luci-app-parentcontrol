@@ -9,7 +9,7 @@ include $(TOPDIR)/rules.mk
 NAME:=parentcontrol
 PKG_NAME:=luci-app-$(NAME)
 PKG_VERSION:=1.7.6
-PKG_RELEASE:=20261006
+PKG_RELEASE:=20261012
 PKG_LICENSE:=Apache-2.0
 
 define Package/$(PKG_NAME)
@@ -17,7 +17,7 @@ define Package/$(PKG_NAME)
   CATEGORY:=LuCI
   SUBMENU:=3. Applications
   TITLE:=LuCI support for Parent Control
-  DEPENDS:=+nftables
+  DEPENDS:=+firewall4 +nftables
 endef
 
 define Package/$(PKG_NAME)/conffiles
