@@ -32,6 +32,7 @@ clean_log() {
         mv "$LOG_FILE.tmp" "$LOG_FILE"
         elog "log trimmed"
     }
+    return 0
 }
 
 get_lan_if() {

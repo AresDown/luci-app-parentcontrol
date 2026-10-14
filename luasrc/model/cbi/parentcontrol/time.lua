@@ -144,7 +144,7 @@ week.default='*'
 a.apply_on_parse = true
 
 function a.on_after_commit(self)
-    luci.sys.call("/etc/init.d/parentcontrol restart >/dev/null 2>&1")
+    luci.sys.call("/etc/init.d/parentcontrol reload >/dev/null 2>&1")
 end
 
 return a
